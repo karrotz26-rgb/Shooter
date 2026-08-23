@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Bullseye Blitz</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+    <script src="https://cdn.jsdelivr.net/npm/phaser@3.60.0/dist/phaser-arcade-physics.min.js"></script>
+    <style>
+        html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; background-color: #111; touch-action: none; }
+        #game-container { width: 100%; height: 100%; cursor: none; }
+    </style>
+</head>
+<body>
+<div id="game-container"></div>
+
+<script>
+    const config = {
+        type: Phaser.AUTO,
+        parent: 'game-container',
+        width: 800,
+        height: 600,
+        scale: {
+            mode: Phaser.Scale.FIT,
+            autoCenter: Phaser.Scale.CENTER_BOTH
+        },
+        input: { activePointers: 2 },
+        scene: { create: create }
+    };
+
+    const game = new Phaser.Game(config);
+
+    let score = 0;
+    let scoreText;
+    let timerText;
+    let timeLeft = 30;
+    let spawnTimerEvent;
+    let countdownEvent;
+    let gameState = 'start'; // 'start' -> 'playing' -> 'gameover'
+    let startScreen;
+    let gameOverScreen;
+    let finalScoreText;
+    let highScoreText;
+    let targets;
+    let crosshair;
+
+    // Standard target is common and cheap, small is uncommon and worth more,
+    // golden is rare and worth the most - same weighting idea as Freud's collectibles.
+    const TARGET_TYPES = [
+        { key: 'standard', points: 1, weight: 65, radius: 34, colors: [0xb33939, 0xf5f5f5, 0xb33939] },
+        { key: 'small', points: 3, weight: 28, radius: 20, colors: [0x2c5f9e, 0xf5f5f5, 0x2c5f9e] },
+        { key: 'golden', points: 10, weight: 7, radius: 26, colors: [0xd4af37, 0xfff6d0, 0xd4af37] }
+    ];
+    const MAX_TARGETS = 5;
+    const TARGET_LIFESPAN = 1800; // ms an unhit target stays up before popping away
+    const SPAWN_INTERVAL = 900;
+    const ROUND_SECONDS = 30;
+    const HIGH_SCORE_KEY = 'shooterHighScores';
+    const MAX_HIGH_SCORES = 5;
+    const PLAY_AREA = { xMin: 70, xMax: 730, yMin: 130, yMax: 420 };
+
+    function pickTargetType() {
+        const totalWeight = TARGET_TYPES.reduce((sum, t) => sum + t.weight, 0);
+        let r = Math.random() * totalWeight;
+        for (const t of TARGET_TYPES) {
+            if (r < t.weight) return t;
+            r -= t.weight;
+        }
+        return TARGET_TYPES[0];
+    }
+
+    // Draw each target type's bullseye once into a reusable texture (three
+    // concentric circles) rather than per-instance Graphics, since several can
+    // be on screen and re-spawn constantly.
+    function getTargetTexture(scene, type) {
+        const key = 'target_' + type.key;
+        if (scene.textures.exists(key)) return key;
+        const r = type.radius;
+        const g = scene.add.graphics();
+        g.fillStyle(type.colors[0], 1); g.fillCircle(r, r, r);
+        g.fillStyle(type.colors[1], 1); g.fillCircle(r, r, r * 0.66);
+        g.fillStyle(type.colors[2], 1); g.fillCircle(r, r, r * 0.33);
+        g.generateTexture(key, r * 2, r * 2);
+        g.destroy();
+        return key;
+    }
+
+    function spawnTarget() {
+        if (targets.getChildren().length >= MAX_TARGETS) return;
+
+        const type = pickTargetType();
+        const texKey = getTargetTexture(this, type);
+        const x = Phaser.Math.Between(PLAY_AREA.xMin, PLAY_AREA.xMax);
+        const y = Phaser.Math.Between(PLAY_AREA.yMin, PLAY_AREA.yMax);
+
+        const target = this.add.image(x, y, texKey).setInteractive({ useHandCursor: true });
+        target.setData('points', type.points);
+        target.setScale(0);
+        targets.add(target);
+
+        this.tweens.add({ targets: target, scale: 1, duration: 220, ease: 'Back.Out' });
+
+        target.on('pointerdown', () => hitTarget.call(this, target));
+
+        target.setData('expireTimer', this.time.delayedCall(TARGET_LIFESPAN, () => removeTarget.call(this, target)));
+    }
+
+    // Target timed out without being hit - pop it away, no score
+    function removeTarget(target) {
+        if (target.getData('hit')) return;
+        target.setData('hit', true);
+        target.disableInteractive();
+        this.tweens.add({
+            targets: target, scale: 0, alpha: 0, duration: 150, ease: 'Back.In',
+            onComplete: () => target.destroy()
+        });
+    }
+
+    function hitTarget(target) {
+        if (target.getData('hit')) return;
+        target.setData('hit', true);
+        target.disableInteractive();
+
+        const expireTimer = target.getData('expireTimer');
+        if (expireTimer) expireTimer.remove(false);
+
+        const points = target.getData('points');
+        score += points;
+        scoreText.setText('Score: ' + score);
+        playHitSound(points);
+        showFloatingPoints.call(this, target.x, target.y, points);
+
+        this.tweens.add({
+            targets: target, scale: 1.4, alpha: 0, duration: 180, ease: 'Cubic.Out',
+            onComplete: () => target.destroy()
+        });
+    }
+
+    function showFloatingPoints(x, y, points) {
+        const label = this.add.text(x, y, '+' + points, {
+            fontSize: '22px', fontFamily: 'Georgia, serif', color: '#ffe27a',
+            stroke: '#4a1010', strokeThickness: 4
+        }).setOrigin(0.5).setDepth(120);
+
+        this.tweens.add({
+            targets: label, y: y - 40, alpha: 0, duration: 700, ease: 'Cubic.Out',
+            onComplete: () => label.destroy()
+        });
+    }
+
+    // Synthesized sound effects (Web Audio) - no sound file exists for this
+    // fresh theme, so nothing needs to load.
+    let audioCtx;
+    function getAudioContext() {
+        if (!audioCtx) {
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        }
+        if (audioCtx.state === 'suspended') {
+            audioCtx.resume();
+        }
+        return audioCtx;
+    }
+
+    function playShootSound() {
+        const ctx = getAudioContext();
+        const now = ctx.currentTime;
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'square';
+        osc.frequency.setValueAtTime(900, now);
+        osc.frequency.exponentialRampToValueAtTime(120, now + 0.12);
+        gain.gain.setValueAtTime(0.12, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.13);
+        osc.connect(gain).connect(ctx.destination);
+        osc.start(now);
+        osc.stop(now + 0.14);
+    }
+
+    function playHitSound(points) {
+        const ctx = getAudioContext();
+        const now = ctx.currentTime;
+        const baseFreq = 500 + points * 25; // brighter ding for higher-value targets
+
+        [0, 0.08].forEach((offset, i) => {
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.type = 'triangle';
+            osc.frequency.setValueAtTime(baseFreq * (i === 0 ? 1 : 1.5), now + offset);
+            gain.gain.setValueAtTime(0.2, now + offset);
+            gain.gain.exponentialRampToValueAtTime(0.001, now + offset + 0.16);
+            osc.connect(gain).connect(ctx.destination);
+            osc.start(now + offset);
+            osc.stop(now + offset + 0.18);
+        });
+    }
+
+    // High scores are kept in this browser only (localStorage) - there's no
+    // server here to share a leaderboard across players.
+    function loadHighScores() {
+        try {
+            const raw = JSON.parse(localStorage.getItem(HIGH_SCORE_KEY));
+            return Array.isArray(raw) ? raw : [];
+        } catch (e) {
+            return [];
+        }
+    }
+
+    function saveHighScore(newScore) {
+        const scores = loadHighScores();
+        scores.push(newScore);
+        scores.sort((a, b) => b - a);
+        const top = scores.slice(0, MAX_HIGH_SCORES);
+        try { localStorage.setItem(HIGH_SCORE_KEY, JSON.stringify(top)); } catch (e) { /* storage unavailable, ignore */ }
+        return top;
+    }
+
+    function clearTargets() {
+        targets.getChildren().slice().forEach(t => {
+            const timer = t.getData('expireTimer');
+            if (timer) timer.remove(false);
+        });
+        targets.clear(true, true);
+    }
+
+    function startGame() {
+        gameState = 'playing';
+
+        // Browsers block audio until a real user gesture unlocks it - this click is that gesture
+        getAudioContext();
+
+        score = 0;
+        scoreText.setText('Score: 0');
+        timeLeft = ROUND_SECONDS;
+        timerText.setText('Time: ' + timeLeft);
+
+        clearTargets();
+        startScreen.setVisible(false);
+        gameOverScreen.setVisible(false);
+
+        spawnTarget.call(this);
+        spawnTimerEvent = this.time.addEvent({ delay: SPAWN_INTERVAL, callback: spawnTarget, callbackScope: this, loop: true });
+        countdownEvent = this.time.addEvent({
+            delay: 1000, loop: true, callbackScope: this,
+            callback: () => {
+                timeLeft--;
+                timerText.setText('Time: ' + timeLeft);
+                if (timeLeft <= 0) endGame.call(this);
+            }
+        });
+    }
+
+    function endGame() {
+        gameState = 'gameover';
+
+        if (spawnTimerEvent) spawnTimerEvent.remove();
+        if (countdownEvent) countdownEvent.remove();
+        clearTargets();
+
+        const scores = saveHighScore(score);
+        finalScoreText.setText('Score: ' + score);
+        highScoreText.setText(
+            'High Scores\n' + scores.map((s, i) => (i + 1) + '. ' + s).join('\n')
+        );
+        gameOverScreen.setVisible(true);
+    }
+
+    function create() {
+        // Procedural "shooting gallery" backdrop - fresh theme, no art assets yet
+        const bg = this.add.graphics();
+        bg.fillStyle(0x8ec9e8, 1); bg.fillRect(0, 0, 800, 380);   // sky
+        bg.fillStyle(0x4a6b3d, 1); bg.fillRect(0, 380, 800, 60);  // tree line
+        bg.fillStyle(0x6b8f4e, 1); bg.fillRect(0, 440, 800, 160); // grass
+        for (let i = 0; i < 10; i++) { // carnival stripe banner where targets pop up
+            bg.fillStyle(i % 2 === 0 ? 0xb33939 : 0xf5f5f5, 1);
+            bg.fillRect(i * 80, 90, 80, 30);
+        }
+
+        targets = this.add.group();
+
+        scoreText = this.add.text(16, 16, 'Score: 0', {
+            fontSize: '26px', fontFamily: 'Impact, Arial Black, sans-serif', color: '#fff4d6',
+            stroke: '#4a1010', strokeThickness: 5
+        }).setDepth(100);
+
+        timerText = this.add.text(784, 16, 'Time: ' + ROUND_SECONDS, {
+            fontSize: '26px', fontFamily: 'Impact, Arial Black, sans-serif', color: '#fff4d6',
+            stroke: '#4a1010', strokeThickness: 5
+        }).setOrigin(1, 0).setDepth(100);
+
+        // Crosshair follows the pointer (mouse or touch); starts centered rather
+        // than at (0,0) so it's not a stray mark in the corner before first move
+        crosshair = this.add.graphics().setDepth(90).setPosition(400, 300);
+        crosshair.lineStyle(3, 0xff3b3b, 0.9);
+        crosshair.strokeCircle(0, 0, 18);
+        crosshair.lineBetween(-26, 0, -10, 0);
+        crosshair.lineBetween(10, 0, 26, 0);
+        crosshair.lineBetween(0, -26, 0, -10);
+        crosshair.lineBetween(0, 10, 0, 26);
+        this.input.on('pointermove', (pointer) => crosshair.setPosition(pointer.x, pointer.y));
+
+        // A "bang" plays for every shot fired during play, whether or not it lands;
+        // hitTarget() adds a separate "ding" on top when a target is actually hit.
+        this.input.on('pointerdown', (pointer) => {
+            if (gameState === 'playing') {
+                crosshair.setPosition(pointer.x, pointer.y);
+                playShootSound();
+            }
+        });
+
+        // Start screen - click anywhere on the overlay to begin
+        const startOverlay = this.add.rectangle(400, 300, 800, 600, 0x000000, 0.6)
+            .setInteractive({ useHandCursor: true })
+            .on('pointerdown', () => startGame.call(this));
+        const startTitle = this.add.text(400, 220, 'Bullseye Blitz', {
+            fontSize: '48px', fontFamily: 'Impact, Arial Black, sans-serif', color: '#fff4d6',
+            stroke: '#4a1010', strokeThickness: 7
+        }).setOrigin(0.5);
+        const startPrompt = this.add.text(400, 310,
+            'Click to Start\n30 seconds - hit targets for points!\nGold targets are rare and worth the most.', {
+            fontSize: '20px', fontFamily: 'Georgia, serif', color: '#fff4d6', align: 'center', lineSpacing: 6
+        }).setOrigin(0.5);
+        startScreen = this.add.container(0, 0, [startOverlay, startTitle, startPrompt]).setDepth(200);
+
+        // Game over screen - hidden until the round ends
+        const gameOverOverlay = this.add.rectangle(400, 300, 800, 600, 0x000000, 0.75)
+            .setInteractive({ useHandCursor: true })
+            .on('pointerdown', () => startGame.call(this));
+        const gameOverTitle = this.add.text(400, 190, "Time's Up!", {
+            fontSize: '40px', fontFamily: 'Impact, Arial Black, sans-serif', color: '#fff4d6',
+            stroke: '#4a1010', strokeThickness: 7
+        }).setOrigin(0.5);
+        finalScoreText = this.add.text(400, 240, 'Score: 0', {
+            fontSize: '24px', fontFamily: 'Georgia, serif', color: '#fff4d6'
+        }).setOrigin(0.5);
+        highScoreText = this.add.text(400, 340, 'High Scores', {
+            fontSize: '20px', fontFamily: 'Georgia, serif', color: '#fff4d6', align: 'center', lineSpacing: 6
+        }).setOrigin(0.5);
+        const playAgainPrompt = this.add.text(400, 470, 'Click to Play Again', {
+            fontSize: '20px', fontFamily: 'Georgia, serif', color: '#fff4d6'
+        }).setOrigin(0.5);
+        gameOverScreen = this.add.container(0, 0,
+            [gameOverOverlay, gameOverTitle, finalScoreText, highScoreText, playAgainPrompt]
+        ).setDepth(200).setVisible(false);
+    }
+</script>
+
+</body>
+</html>
