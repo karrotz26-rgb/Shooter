@@ -172,6 +172,7 @@
         this.load.image('bot_gunner', 'assets/bot_gunner.png');
         this.load.image('bot_spider', 'assets/bot_spider.png');
         this.load.image('rock', 'assets/rock.png');
+        this.load.spritesheet('explosion', 'assets/explosion_sheet.png', { frameWidth: 136, frameHeight: 92 });
     }
 
     function spawnBot() {
@@ -218,19 +219,12 @@
         });
     }
 
-    function burstAt(scene, x, y, color) {
-        const g = scene.add.graphics().setDepth(110);
-        g.fillStyle(color, 0.9);
-        g.fillCircle(x, y, 6);
-        scene.tweens.add({
-            targets: g, alpha: 0, duration: 260, ease: 'Cubic.Out',
-            onUpdate: (tw) => {
-                g.clear();
-                g.fillStyle(color, 1 - tw.progress);
-                g.fillCircle(x, y, 6 + tw.progress * 30);
-            },
-            onComplete: () => g.destroy()
-        });
+    function explodeAt(scene, x, y, width) {
+        const height = width * (92 / 136);
+        const boom = scene.add.sprite(x, y, 'explosion').setDepth(110);
+        boom.setDisplaySize(width, height);
+        boom.play('explode');
+        boom.on('animationcomplete', () => boom.destroy());
     }
 
     function onRockHitBot(rock, bot) {
@@ -244,7 +238,7 @@
         scoreText.setText('Score: ' + score);
         playHitSound(points);
         showFloatingPoints.call(this, bot.x, bot.y, points);
-        burstAt(this, bot.x, bot.y, 0xffb37a);
+        explodeAt(this, bot.x, bot.y, bot.displayWidth * 1.8);
 
         this.tweens.add({
             targets: bot, scale: bot.scale * 1.3, alpha: 0, duration: 160, ease: 'Cubic.Out',
@@ -385,6 +379,13 @@
         const bg = this.add.image(WIDTH / 2, HEIGHT / 2, 'bg');
         const scale = Math.max(WIDTH / bg.width, HEIGHT / bg.height);
         bg.setScale(scale).setDepth(0);
+
+        this.anims.create({
+            key: 'explode',
+            frames: this.anims.generateFrameNumbers('explosion', { start: 0, end: 11 }),
+            frameRate: 24,
+            repeat: 0
+        });
 
         bots = this.physics.add.group({ allowGravity: false });
         rocks = this.physics.add.group();
