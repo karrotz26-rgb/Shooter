@@ -36,12 +36,28 @@
 
     const game = new Phaser.Game(config);
 
-    // ---- Slingshot boy geometry ----
+    // ---- Slingshot boy geometry (Shooter.png: boy viewed from behind, both
+    // hands already gripping the fork mid-pull) ----
     const GROUND_Y = HEIGHT - 40;
     const BOY_X = WIDTH / 2;
-    const FORK_X = BOY_X - 40;
-    const FORK_Y = GROUND_Y - 168;
-    const ANCHOR = { x: FORK_X, y: FORK_Y - 4 };
+    // Key points measured on the source art (578x432 canvas, feet at y=416)
+    const CHAR = {
+        canvasW: 578, canvasH: 432, feetLocalY: 416, scale: 0.5583,
+        leftHand: { x: 195, y: 105 },
+        rightHand: { x: 378, y: 118 }
+    };
+    function charToWorld(lx, ly) {
+        return {
+            x: BOY_X + (lx - CHAR.canvasW / 2) * CHAR.scale,
+            y: GROUND_Y - (CHAR.feetLocalY - ly) * CHAR.scale
+        };
+    }
+    const PRONG_L = charToWorld(CHAR.leftHand.x, CHAR.leftHand.y);
+    const PRONG_R = charToWorld(CHAR.rightHand.x, CHAR.rightHand.y);
+    const ANCHOR = {
+        x: (PRONG_L.x + PRONG_R.x) / 2,
+        y: (PRONG_L.y + PRONG_R.y) / 2
+    };
     const MAX_PULL = 150;
     const MIN_PULL = 18;
     const LAUNCH_POWER = 6.4;
@@ -149,6 +165,7 @@
 
     function preload() {
         this.load.image('bg', 'Bg.jpeg');
+        this.load.image('boy', 'Shooter.png');
         this.load.image('bot_walker', 'assets/bot_walker.png');
         this.load.image('bot_orb', 'assets/bot_orb.png');
         this.load.image('bot_gunner', 'assets/bot_gunner.png');
@@ -254,14 +271,11 @@
         slingGfx.clear();
         if (!aiming) return;
 
-        // pulling arm (shoulder to pouch)
-        slingGfx.lineStyle(9, 0x161016, 1);
-        slingGfx.lineBetween(BOY_X - 12, GROUND_Y - 118, pouch.x, pouch.y);
-
-        // rubber bands from fork prongs to pouch
+        // rubber bands from the boy's hands (already gripping the fork in the
+        // art) out to the pouch
         slingGfx.lineStyle(4, 0x3a2a1a, 1);
-        slingGfx.lineBetween(FORK_X - 14, FORK_Y - 4, pouch.x, pouch.y);
-        slingGfx.lineBetween(FORK_X + 14, FORK_Y - 4, pouch.x, pouch.y);
+        slingGfx.lineBetween(PRONG_L.x, PRONG_L.y, pouch.x, pouch.y);
+        slingGfx.lineBetween(PRONG_R.x, PRONG_R.y, pouch.x, pouch.y);
 
         // pouch
         slingGfx.fillStyle(0x2a1c12, 1);
@@ -303,45 +317,10 @@
     }
 
     function drawBoy(scene) {
-        const g = scene.add.graphics().setDepth(10);
-        const bodyColor = 0x15101a;
-        const rim = 0xffb37a;
-
-        // legs
-        g.fillStyle(bodyColor, 1);
-        g.fillRoundedRect(BOY_X - 24, GROUND_Y - 70, 16, 70, 4);
-        g.fillRoundedRect(BOY_X + 8, GROUND_Y - 70, 16, 70, 4);
-
-        // torso
-        g.fillRoundedRect(BOY_X - 22, GROUND_Y - 130, 44, 68, 10);
-
-        // back arm stub (right side, idle)
-        g.fillRoundedRect(BOY_X + 14, GROUND_Y - 112, 12, 40, 6);
-
-        // front arm reaching to the fork
-        g.lineStyle(11, bodyColor, 1);
-        g.beginPath();
-        g.moveTo(BOY_X + 6, GROUND_Y - 118);
-        g.lineTo(FORK_X, FORK_Y + 20);
-        g.strokePath();
-
-        // head
-        g.fillCircle(BOY_X, GROUND_Y - 148, 17);
-        g.fillTriangle(BOY_X - 11, GROUND_Y - 161, BOY_X + 11, GROUND_Y - 161, BOY_X, GROUND_Y - 173);
-
-        // fork
-        g.lineStyle(7, 0x4a3626, 1);
-        g.beginPath();
-        g.moveTo(FORK_X, FORK_Y + 20);
-        g.lineTo(FORK_X - 14, FORK_Y - 4);
-        g.moveTo(FORK_X, FORK_Y + 20);
-        g.lineTo(FORK_X + 14, FORK_Y - 4);
-        g.strokePath();
-
-        // rim light so the silhouette pops against the dusky background
-        g.lineStyle(2, rim, 0.3);
-        g.strokeCircle(BOY_X, GROUND_Y - 148, 17);
-        g.strokeRoundedRect(BOY_X - 22, GROUND_Y - 130, 44, 68, 10);
+        scene.add.image(BOY_X, GROUND_Y, 'boy')
+            .setOrigin(0.5, CHAR.feetLocalY / CHAR.canvasH)
+            .setDisplaySize(CHAR.canvasW * CHAR.scale, CHAR.canvasH * CHAR.scale)
+            .setDepth(10);
     }
 
     function clearBots() {
