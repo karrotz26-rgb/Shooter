@@ -36,24 +36,25 @@
 
     const game = new Phaser.Game(config);
 
-    // ---- Slingshot boy geometry (Shooter.png: boy viewed from behind, the
-    // wooden Y-fork is gripped in his left hand, both prong tips up by his cap) ----
-    const GROUND_Y = HEIGHT - 40;
-    const BOY_X = WIDTH / 2;
-    // Key points measured on the source art (578x432 canvas, feet at y=416)
-    const CHAR = {
-        canvasW: 578, canvasH: 432, feetLocalY: 416, scale: 0.5583,
-        prongTipL: { x: 192, y: 60 },
-        prongTipR: { x: 330, y: 65 }
+    // ---- Slingshot hand geometry (assets/sling_hand.png: first-person hand
+    // gripping the fork, trimmed tight with the wrist deliberately cut off at
+    // the bottom edge so it can be anchored flush to the bottom of the screen) ----
+    const HAND_X = WIDTH / 2;
+    // Key points measured on the trimmed source art (243x294 canvas)
+    const HAND = {
+        canvasW: 243, canvasH: 294, displayH: 280,
+        prongTipL: { x: 91, y: 25 },
+        prongTipR: { x: 205, y: 25 }
     };
-    function charToWorld(lx, ly) {
+    HAND.scale = HAND.displayH / HAND.canvasH;
+    function handToWorld(lx, ly) {
         return {
-            x: BOY_X + (lx - CHAR.canvasW / 2) * CHAR.scale,
-            y: GROUND_Y - (CHAR.feetLocalY - ly) * CHAR.scale
+            x: HAND_X + (lx - HAND.canvasW / 2) * HAND.scale,
+            y: HEIGHT - (HAND.canvasH - ly) * HAND.scale
         };
     }
-    const PRONG_L = charToWorld(CHAR.prongTipL.x, CHAR.prongTipL.y);
-    const PRONG_R = charToWorld(CHAR.prongTipR.x, CHAR.prongTipR.y);
+    const PRONG_L = handToWorld(HAND.prongTipL.x, HAND.prongTipL.y);
+    const PRONG_R = handToWorld(HAND.prongTipR.x, HAND.prongTipR.y);
     const ANCHOR = {
         x: (PRONG_L.x + PRONG_R.x) / 2,
         y: (PRONG_L.y + PRONG_R.y) / 2
@@ -75,7 +76,7 @@
     const ROUND_SECONDS = 45;
     const HIGH_SCORE_KEY = 'botSlingerHighScores';
     const MAX_HIGH_SCORES = 5;
-    const PLAY_AREA = { xMin: 70, xMax: 890, yMin: 70, yMax: 320 };
+    const PLAY_AREA = { xMin: 70, xMax: 890, yMin: 70, yMax: 280 };
 
     let score = 0;
     let scoreText, timerText;
@@ -165,7 +166,7 @@
 
     function preload() {
         this.load.image('bg', 'Bg.jpeg');
-        this.load.image('boy', 'Shooter.png');
+        this.load.image('hand', 'assets/sling_hand.png');
         this.load.image('bot_walker', 'assets/bot_walker.png');
         this.load.image('bot_orb', 'assets/bot_orb.png');
         this.load.image('bot_gunner', 'assets/bot_gunner.png');
@@ -297,7 +298,7 @@
             const t = i * 0.06;
             const px = pouch.x + vx * t;
             const py = pouch.y + vy * t + 0.5 * g * t * t;
-            if (py > GROUND_Y + 20 || px < 0 || px > WIDTH) break;
+            if (py > HEIGHT + 20 || px < 0 || px > WIDTH) break;
             previewGfx.fillCircle(px, py, 3);
         }
     }
@@ -316,11 +317,11 @@
         playShootSound();
     }
 
-    function drawBoy(scene) {
-        scene.add.image(BOY_X, GROUND_Y, 'boy')
-            .setOrigin(0.5, CHAR.feetLocalY / CHAR.canvasH)
-            .setDisplaySize(CHAR.canvasW * CHAR.scale, CHAR.canvasH * CHAR.scale)
-            .setDepth(10);
+    function drawHand(scene) {
+        scene.add.image(HAND_X, HEIGHT, 'hand')
+            .setOrigin(0.5, 1)
+            .setDisplaySize(HAND.canvasW * HAND.scale, HAND.canvasH * HAND.scale)
+            .setDepth(25);
     }
 
     function clearBots() {
@@ -390,10 +391,10 @@
 
         this.physics.add.overlap(rocks, bots, onRockHitBot, undefined, this);
 
-        drawBoy(this);
+        drawHand(this);
         trailGfx = this.add.graphics().setDepth(14);
-        slingGfx = this.add.graphics().setDepth(13);
-        previewGfx = this.add.graphics().setDepth(13);
+        slingGfx = this.add.graphics().setDepth(26);
+        previewGfx = this.add.graphics().setDepth(26);
 
         scoreText = this.add.text(16, 16, 'Score: 0', {
             fontSize: '26px', fontFamily: 'Impact, Arial Black, sans-serif', color: '#fff4d6',
@@ -410,7 +411,7 @@
             if (gameState !== 'playing') return;
             aiming = true;
             updatePouchFromPointer(pointer);
-            pouchRock = this.add.image(pouch.x, pouch.y, 'rock').setDisplaySize(30, 16).setDepth(12);
+            pouchRock = this.add.image(pouch.x, pouch.y, 'rock').setDisplaySize(30, 16).setDepth(27);
             drawSling();
             drawTrajectoryPreview();
         });
@@ -494,7 +495,7 @@
                 trailGfx.fillCircle(p.x, p.y, 2 + f * 3);
             });
 
-            if (rock.y > GROUND_Y + 30 || rock.x < -40 || rock.x > WIDTH + 40 || rock.y < -60) {
+            if (rock.y > HEIGHT + 30 || rock.x < -40 || rock.x > WIDTH + 40 || rock.y < -60) {
                 rock.destroy();
             }
         });
