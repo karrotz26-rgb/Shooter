@@ -36,15 +36,15 @@
 
     const game = new Phaser.Game(config);
 
-    // ---- Slingshot boy geometry (Shooter.png: boy viewed from behind, both
-    // hands already gripping the fork mid-pull) ----
+    // ---- Slingshot boy geometry (Shooter.png: boy viewed from behind, the
+    // wooden Y-fork is gripped in his left hand, both prong tips up by his cap) ----
     const GROUND_Y = HEIGHT - 40;
     const BOY_X = WIDTH / 2;
     // Key points measured on the source art (578x432 canvas, feet at y=416)
     const CHAR = {
         canvasW: 578, canvasH: 432, feetLocalY: 416, scale: 0.5583,
-        leftHand: { x: 195, y: 105 },
-        rightHand: { x: 378, y: 118 }
+        prongTipL: { x: 192, y: 60 },
+        prongTipR: { x: 330, y: 65 }
     };
     function charToWorld(lx, ly) {
         return {
@@ -52,8 +52,8 @@
             y: GROUND_Y - (CHAR.feetLocalY - ly) * CHAR.scale
         };
     }
-    const PRONG_L = charToWorld(CHAR.leftHand.x, CHAR.leftHand.y);
-    const PRONG_R = charToWorld(CHAR.rightHand.x, CHAR.rightHand.y);
+    const PRONG_L = charToWorld(CHAR.prongTipL.x, CHAR.prongTipL.y);
+    const PRONG_R = charToWorld(CHAR.prongTipR.x, CHAR.prongTipR.y);
     const ANCHOR = {
         x: (PRONG_L.x + PRONG_R.x) / 2,
         y: (PRONG_L.y + PRONG_R.y) / 2
