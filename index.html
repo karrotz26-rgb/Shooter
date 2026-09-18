@@ -554,10 +554,10 @@
         }).setOrigin(0.5);
         startScreen = this.add.container(0, 0, [startOverlay, startTitle, startPrompt]).setDepth(200);
 
-        // Game over screen
-        const gameOverOverlay = this.add.rectangle(WIDTH / 2, HEIGHT / 2, WIDTH, HEIGHT, 0x000000, 0.7)
-            .setInteractive({ useHandCursor: true })
-            .on('pointerdown', () => startGame.call(this));
+        // Game over screen - deliberately NOT click-anywhere-to-restart, so a
+        // stray tap can't blow away the score before the player reads it or
+        // taps Share Score; restarting takes its own dedicated button below.
+        const gameOverOverlay = this.add.rectangle(WIDTH / 2, HEIGHT / 2, WIDTH, HEIGHT, 0x000000, 0.7);
         const gameOverTitle = this.add.text(WIDTH / 2, HEIGHT / 2 - 190, "Time's Up!", {
             fontSize: '40px', fontFamily: 'Impact, Arial Black, sans-serif', color: '#fff4d6',
             stroke: '#2a1005', strokeThickness: 7
@@ -590,11 +590,28 @@
             color: '#7cffb0', letterSpacing: 2
         }).setOrigin(0.5);
 
-        const playAgainPrompt = this.add.text(WIDTH / 2, HEIGHT / 2 + 175, 'Tap to Play Again', {
-            fontSize: '20px', fontFamily: 'Georgia, serif', color: '#fff4d6'
+        const playBtnW = 240, playBtnH = 50;
+        const playBtnX = WIDTH / 2, playBtnY = HEIGHT / 2 + 175;
+        const playBtnBg = this.add.graphics();
+        playBtnBg.fillStyle(0x3a2005, 0.92);
+        playBtnBg.fillRoundedRect(playBtnX - playBtnW / 2, playBtnY - playBtnH / 2, playBtnW, playBtnH, 10);
+        playBtnBg.lineStyle(2, 0xffe27a, 0.9);
+        playBtnBg.strokeRoundedRect(playBtnX - playBtnW / 2, playBtnY - playBtnH / 2, playBtnW, playBtnH, 10);
+        playBtnBg.setInteractive({
+            hitArea: new Phaser.Geom.Rectangle(playBtnX - playBtnW / 2, playBtnY - playBtnH / 2, playBtnW, playBtnH),
+            hitAreaCallback: Phaser.Geom.Rectangle.Contains,
+            useHandCursor: true
+        });
+        playBtnBg.on('pointerdown', (pointer, lx, ly, event) => {
+            event.stopPropagation();
+            startGame.call(this);
+        });
+        const playBtnLabel = this.add.text(playBtnX, playBtnY, 'PLAY AGAIN', {
+            fontSize: '22px', fontFamily: 'Georgia, serif', fontStyle: 'bold', color: '#ffe27a'
         }).setOrigin(0.5);
+
         gameOverScreen = this.add.container(0, 0,
-            [gameOverOverlay, gameOverTitle, finalScoreText, highScoreText, shareBtnBg, shareBtnLabel, playAgainPrompt]
+            [gameOverOverlay, gameOverTitle, finalScoreText, highScoreText, shareBtnBg, shareBtnLabel, playBtnBg, playBtnLabel]
         ).setDepth(200).setVisible(false);
     }
 
