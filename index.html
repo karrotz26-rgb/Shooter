@@ -2,7 +2,7 @@
 <html>
 <head>
     <meta charset="UTF-8">
-    <title>Bot Slinger</title>
+    <title>The Resistance</title>
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
     <script src="assets/phaser-arcade-physics.min.js"></script>
     <style>
@@ -79,6 +79,7 @@
     const PLAY_AREA = { xMin: 70, xMax: 890, yMin: 70, yMax: 280 };
 
     let score = 0;
+    let finalScore = 0;
     let scoreText, timerText;
     let timeLeft = ROUND_SECONDS;
     let spawnTimerEvent, countdownEvent;
@@ -162,6 +163,104 @@
         const top = scores.slice(0, MAX_HIGH_SCORES);
         try { localStorage.setItem(HIGH_SCORE_KEY, JSON.stringify(top)); } catch (e) { /* storage unavailable */ }
         return top;
+    }
+
+    // ---- Share card: composed on an offscreen canvas from the same art
+    // already loaded into Phaser, then handed to the OS share sheet (or
+    // downloaded as a PNG when Web Share isn't available) ----
+    function drawRoboticText(ctx, text, cx, y, fontSize, color) {
+        ctx.save();
+        ctx.font = '700 ' + fontSize + 'px "Courier New", monospace';
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'alphabetic';
+        ctx.shadowColor = color;
+        ctx.shadowBlur = fontSize * 0.4;
+        ctx.fillStyle = color;
+        ctx.strokeStyle = '#0a1f12';
+        ctx.lineWidth = Math.max(2, fontSize * 0.06);
+
+        const letterSpacing = fontSize * 0.32;
+        let totalWidth = 0;
+        for (const ch of text) totalWidth += ctx.measureText(ch).width + letterSpacing;
+        totalWidth -= letterSpacing;
+
+        let x = cx - totalWidth / 2;
+        for (const ch of text) {
+            ctx.strokeText(ch, x, y);
+            ctx.fillText(ch, x, y);
+            x += ctx.measureText(ch).width + letterSpacing;
+        }
+        ctx.restore();
+    }
+
+    function buildShareCardBlob(scene, scoreValue, callback) {
+        const cw = 800, ch = 450;
+        const canvas = document.createElement('canvas');
+        canvas.width = cw;
+        canvas.height = ch;
+        const ctx = canvas.getContext('2d');
+
+        const bgImg = scene.textures.get('bg').getSourceImage();
+        const bgScale = Math.max(cw / bgImg.width, ch / bgImg.height);
+        const dw = bgImg.width * bgScale, dh = bgImg.height * bgScale;
+        ctx.drawImage(bgImg, (cw - dw) / 2, (ch - dh) / 2, dw, dh);
+
+        const grad = ctx.createLinearGradient(0, 0, 0, ch);
+        grad.addColorStop(0, 'rgba(10,7,16,0.6)');
+        grad.addColorStop(0.55, 'rgba(10,7,16,0.3)');
+        grad.addColorStop(1, 'rgba(10,7,16,0.8)');
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, cw, ch);
+
+        drawRoboticText(ctx, 'THE RESISTANCE', cw / 2, 72, 38, '#7cffb0');
+
+        ctx.textAlign = 'center';
+        ctx.fillStyle = '#fff4d6';
+        ctx.font = '700 24px Georgia, serif';
+        ctx.fillText('FINAL SCORE', cw / 2, 185);
+
+        ctx.font = '900 100px Impact, "Arial Black", sans-serif';
+        ctx.strokeStyle = '#2a1005';
+        ctx.lineWidth = 7;
+        ctx.strokeText(String(scoreValue), cw / 2, 295);
+        ctx.fillStyle = '#ffe27a';
+        ctx.fillText(String(scoreValue), cw / 2, 295);
+
+        const handImg = scene.textures.get('hand').getSourceImage();
+        const hh = 160, hw = hh * (handImg.width / handImg.height);
+        ctx.drawImage(handImg, cw - hw - 18, ch - hh + 10, hw, hh);
+
+        ctx.textAlign = 'left';
+        ctx.font = '16px Georgia, serif';
+        ctx.fillStyle = '#d8c9b0';
+        ctx.fillText('Bots eliminated with a slingshot. Can you beat it?', 22, ch - 20);
+
+        canvas.toBlob((blob) => callback(blob), 'image/png');
+    }
+
+    function shareScore(scene, scoreValue) {
+        buildShareCardBlob(scene, scoreValue, (blob) => {
+            if (!blob) return;
+            const fileName = 'the-resistance-score-' + scoreValue + '.png';
+            const file = new File([blob], fileName, { type: 'image/png' });
+
+            if (navigator.canShare && navigator.canShare({ files: [file] })) {
+                navigator.share({
+                    files: [file],
+                    title: 'The Resistance',
+                    text: 'I scored ' + scoreValue + ' in The Resistance. Can you beat it?'
+                }).catch(() => { /* user cancelled the share sheet - nothing to do */ });
+            } else {
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = fileName;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                setTimeout(() => URL.revokeObjectURL(url), 4000);
+            }
+        });
     }
 
     function preload() {
@@ -268,7 +367,7 @@
 
         // rubber bands from the boy's hands (already gripping the fork in the
         // art) out to the pouch
-        slingGfx.lineStyle(4, 0x3a2a1a, 1);
+        slingGfx.lineStyle(9, 0xb51212, 1);
         slingGfx.lineBetween(PRONG_L.x, PRONG_L.y, pouch.x, pouch.y);
         slingGfx.lineBetween(PRONG_R.x, PRONG_R.y, pouch.x, pouch.y);
 
@@ -369,6 +468,7 @@
         clearBots();
         clearRocks();
 
+        finalScore = score;
         const scores = saveHighScore(score);
         finalScoreText.setText('Score: ' + score);
         highScoreText.setText('High Scores\n' + scores.map((s, i) => (i + 1) + '. ' + s).join('\n'));
@@ -443,10 +543,11 @@
         const startOverlay = this.add.rectangle(WIDTH / 2, HEIGHT / 2, WIDTH, HEIGHT, 0x000000, 0.55)
             .setInteractive({ useHandCursor: true })
             .on('pointerdown', () => startGame.call(this));
-        const startTitle = this.add.text(WIDTH / 2, HEIGHT / 2 - 80, 'Bot Slinger', {
-            fontSize: '52px', fontFamily: 'Impact, Arial Black, sans-serif', color: '#fff4d6',
-            stroke: '#2a1005', strokeThickness: 7
+        const startTitle = this.add.text(WIDTH / 2, HEIGHT / 2 - 80, 'THE RESISTANCE', {
+            fontSize: '46px', fontFamily: '"Courier New", Consolas, monospace', fontStyle: 'bold',
+            color: '#7cffb0', stroke: '#0a1f12', strokeThickness: 6, letterSpacing: 8
         }).setOrigin(0.5);
+        startTitle.setShadow(0, 0, '#4dffa3', 16, false, true);
         const startPrompt = this.add.text(WIDTH / 2, HEIGHT / 2,
             'Touch & hold to pull back the slingshot\nDrag to aim, let go to fire!\n' + ROUND_SECONDS + ' seconds - take down as many bots as you can.', {
             fontSize: '20px', fontFamily: 'Georgia, serif', color: '#fff4d6', align: 'center', lineSpacing: 8
@@ -457,21 +558,43 @@
         const gameOverOverlay = this.add.rectangle(WIDTH / 2, HEIGHT / 2, WIDTH, HEIGHT, 0x000000, 0.7)
             .setInteractive({ useHandCursor: true })
             .on('pointerdown', () => startGame.call(this));
-        const gameOverTitle = this.add.text(WIDTH / 2, HEIGHT / 2 - 110, "Time's Up!", {
-            fontSize: '42px', fontFamily: 'Impact, Arial Black, sans-serif', color: '#fff4d6',
+        const gameOverTitle = this.add.text(WIDTH / 2, HEIGHT / 2 - 190, "Time's Up!", {
+            fontSize: '40px', fontFamily: 'Impact, Arial Black, sans-serif', color: '#fff4d6',
             stroke: '#2a1005', strokeThickness: 7
         }).setOrigin(0.5);
-        finalScoreText = this.add.text(WIDTH / 2, HEIGHT / 2 - 60, 'Score: 0', {
+        finalScoreText = this.add.text(WIDTH / 2, HEIGHT / 2 - 140, 'Score: 0', {
             fontSize: '24px', fontFamily: 'Georgia, serif', color: '#fff4d6'
         }).setOrigin(0.5);
-        highScoreText = this.add.text(WIDTH / 2, HEIGHT / 2 + 30, 'High Scores', {
-            fontSize: '20px', fontFamily: 'Georgia, serif', color: '#fff4d6', align: 'center', lineSpacing: 6
+        highScoreText = this.add.text(WIDTH / 2, HEIGHT / 2 - 45, 'High Scores', {
+            fontSize: '18px', fontFamily: 'Georgia, serif', color: '#fff4d6', align: 'center', lineSpacing: 5
         }).setOrigin(0.5);
-        const playAgainPrompt = this.add.text(WIDTH / 2, HEIGHT / 2 + 150, 'Tap to Play Again', {
+
+        const shareBtnW = 240, shareBtnH = 50;
+        const shareBtnX = WIDTH / 2, shareBtnY = HEIGHT / 2 + 105;
+        const shareBtnBg = this.add.graphics();
+        shareBtnBg.fillStyle(0x122b1c, 0.92);
+        shareBtnBg.fillRoundedRect(shareBtnX - shareBtnW / 2, shareBtnY - shareBtnH / 2, shareBtnW, shareBtnH, 10);
+        shareBtnBg.lineStyle(2, 0x7cffb0, 0.9);
+        shareBtnBg.strokeRoundedRect(shareBtnX - shareBtnW / 2, shareBtnY - shareBtnH / 2, shareBtnW, shareBtnH, 10);
+        shareBtnBg.setInteractive({
+            hitArea: new Phaser.Geom.Rectangle(shareBtnX - shareBtnW / 2, shareBtnY - shareBtnH / 2, shareBtnW, shareBtnH),
+            hitAreaCallback: Phaser.Geom.Rectangle.Contains,
+            useHandCursor: true
+        });
+        shareBtnBg.on('pointerdown', (pointer, lx, ly, event) => {
+            event.stopPropagation();
+            shareScore(this, finalScore);
+        });
+        const shareBtnLabel = this.add.text(shareBtnX, shareBtnY, 'SHARE SCORE', {
+            fontSize: '20px', fontFamily: '"Courier New", Consolas, monospace', fontStyle: 'bold',
+            color: '#7cffb0', letterSpacing: 2
+        }).setOrigin(0.5);
+
+        const playAgainPrompt = this.add.text(WIDTH / 2, HEIGHT / 2 + 175, 'Tap to Play Again', {
             fontSize: '20px', fontFamily: 'Georgia, serif', color: '#fff4d6'
         }).setOrigin(0.5);
         gameOverScreen = this.add.container(0, 0,
-            [gameOverOverlay, gameOverTitle, finalScoreText, highScoreText, playAgainPrompt]
+            [gameOverOverlay, gameOverTitle, finalScoreText, highScoreText, shareBtnBg, shareBtnLabel, playAgainPrompt]
         ).setDepth(200).setVisible(false);
     }
 
